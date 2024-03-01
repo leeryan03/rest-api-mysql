@@ -1,119 +1,163 @@
-import { User, UnitUser, Users } from "./user.interface";
-import bcrypt from "bcryptjs"
-import {v4 as random} from "uuid"
-import fs from "fs"
+import { User, UnitUser } from "./user.interface";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
+import mysql from "mysql";
 
-let users: Users = loadUsers()
 
-function loadUsers () : Users {
-    try {
-        const data = fs.readFileSync("./users.json", "utf-8")
-        return JSON.parse(data)
-    } catch (error) {
-        console.log('Error ${error}')
-        return {}
-    }
-}
+// Create MySQL connection
+const connection = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: '', // replace with your actual root password
+  database: 'rivera_db',
+});
+// Connect to MySQL
+connection.connect((err) => {
+  if (err) {
+    console.error("Error connecting to MySQL:", err);
+    return;
+  }
+  console.log("Connected to MySQL database!");
+});
 
-function saveUsers () {
-    try {
-        fs.writeFileSync("./users.json", JSON.stringify(users), "utf-8")
-        console.log('User saved successfully!')
-    } catch (error) {
-        console.log('Error : ${error}')
-    }
-}
-export const findAll = async (): Promise<UnitUser[]> => Object.values(users);
-
-export const findOne = async (id: string): Promise<UnitUser> => users[id];
-
-export const create = async (userData: UnitUser): Promise<UnitUser | null> => {
-
-    let id = random()
-
-    let check_user = await findOne(id);
-
-    while (check_user) {
-        id = random()
-        check_user = await findOne(id)
-    }
-
-    const salt = await bcrypt.genSalt(10);
-
-    const hashedPassword = await bcrypt.hash(userData.password, salt);
-
-    const user : UnitUser = {
-        id : id,
-        username : userData.username,
-        email : userData.email,
-        password: hashedPassword
-    };
-
-    users [id] = user;
-
-    saveUsers()
-
-    return user;
-
+export const findAll = async (): Promise<UnitUser[]> => {
+  const query = "SELECT * FROM users";
+  return new Promise((resolve, reject) => {
+    connection.query(query, (error, results: UnitUser[]) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results);
+      }
+    });
+  });
 };
 
-export const findByEmail = async (user_email: string): Promise<null | UnitUser> => {
-     const allUsers = await findAll();
+export const findOne = async (id: string): Promise<UnitUser | null> => {
+  const query = "SELECT * FROM users WHERE id = ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [id], (error, results: UnitUser[]) => {
+      if (error) {
+        reject(error);
+      } else {
+        if (results.length === 0) {
+          resolve(null);
+        } else {
+          resolve(results[0]);
+        }
+      }
+    });
+  });
+};
 
-     const getUser = allUsers.find(result => user_email === result.email);
+export const create = async (userData: User): Promise<UnitUser | null> => {
+  const id = uuidv4();
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(userData.password, salt);
+  const newUser: UnitUser = { ...userData, id, password: hashedPassword };
+  const query = "INSERT INTO users SET ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, newUser, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(newUser);
+      }
+    });
+  });
+};
 
-     if (!getUser) {
-            return null;
-     }
+export const findByEmail = async (email: string): Promise<UnitUser | null> => {
+  const query = "SELECT * FROM users WHERE email = ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [email], (error, results: UnitUser[]) => {
+      if (error) {
+        reject(error);
+      } else {
+        if (results.length === 0) {
+          resolve(null);
+        } else {
+          resolve(results[0]);
+        }
+      }
+    });
+  });
+};
 
-     return getUser;
-}
+export const comparePassword = async (
+  email: string,
+  suppliedPassword: string
+): Promise<UnitUser | null> => {
+  const user = await findByEmail(email);
+  if (!user) {
+    return null;
+  }
+  const isMatch = await bcrypt.compare(suppliedPassword, user.password);
+  if (isMatch) {
+    return user;
+  } else {
+    return null;
+  }
+};
 
-export const comparePassword = async (email : string, supplied_password : string) : Promise<null | UnitUser> => {
+export const update = async (
+  id: string,
+  updateValues: Partial<User>
+): Promise<UnitUser | null> => {
+  const user = await findOne(id);
+  if (!user) {
+    return null;
+  }
+  const updatedUser: UnitUser = { ...user, ...updateValues };
+  const query = "UPDATE users SET ? WHERE id = ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [updatedUser, id], (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(updatedUser);
+      }
+    });
+  });
+};
 
-    const user = await findByEmail(email)
+export const remove = async (id: string): Promise<void> => {
+  const query = "DELETE FROM users WHERE id = ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [id], (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
 
-    const decryptPassword = await bcrypt.compare(supplied_password, user!.password)
+export const searchByName = async (name: string): Promise<UnitUser[]> => {
+  const query = "SELECT * FROM users WHERE username LIKE ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [`%${name}%`], (error, results: UnitUser[]) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
 
-    if (!decryptPassword) {
-            return null
-    }
+export const searchByEmail = async (email: string): Promise<UnitUser[]> => {
+  const query = "SELECT * FROM users WHERE email LIKE ?";
+  return new Promise((resolve, reject) => {
+    connection.query(query, [`%${email}%`], (error, results: UnitUser[]) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
 
-    return user
-}
-
-export const update = async (id : string, updateValues : User) : Promise<UnitUser | null> => {
-
-    const userExists = await findOne(id)
-
-    if (!userExists) {
-            return null
-    }
-    if (updateValues.password ) {
-        const salt = await bcrypt.genSalt(10)
-        const newPass = await bcrypt.hash(updateValues.password, salt)
-
-        updateValues.password = newPass
-    }
-
-    users[id] = {
-        ...userExists,
-        ...updateValues
-    }
-
-    saveUsers()
-
-    return users[id]
-}
-
-export const remove = async (id : string) : Promise<null | void> => {
-
-    const user = await findOne(id)
-
-    if (!user) {
-        return null
-    }
-    delete users[id]
-
-    saveUsers()
-}
+export default connection; // Export the MySQL connection
