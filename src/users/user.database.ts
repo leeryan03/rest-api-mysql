@@ -97,7 +97,7 @@ export const update = async (id : string, updateValues : User) : Promise<UnitUse
     }
 
     users[id] = {
-        ...userExists
+        ...userExists,
         ...updateValues
     }
 
